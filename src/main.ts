@@ -157,7 +157,6 @@ class Game {
     w: 22,
     h: 26,
     grounded: false,
-    gravityDir: 1 as 1 | -1,
     jumpBuffer: 0,
     coyote: 0,
     pulseCooldown: 0,
@@ -166,8 +165,12 @@ class Game {
   };
   private particles: Array<{ pos: Vec2; vel: Vec2; life: number; maxLife: number; color: string }> = [];
   private shake = 0;
-  private win = false;
   private roomStartMs = performance.now();
+  private flip = {
+    active: false,
+    elapsed: 0,
+    duration: 0.45
+  };
 
   constructor(private canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext('2d');
@@ -206,7 +209,6 @@ class Game {
     this.player.pos.y = this.room.spawn.y * TILE_SIZE + TILE_SIZE / 2;
     this.player.vel.x = 0;
     this.player.vel.y = 0;
-    this.player.gravityDir = 1;
     this.player.pulseCooldown = 0;
 
     this.beams = [];
@@ -231,10 +233,7 @@ class Game {
     p.squash = Math.max(0, p.squash - dt * 5);
 
     if (this.justPressed.has('Space')) {
-      p.gravityDir *= -1;
-      p.squash = 1;
-      this.emitBurst({ x: p.pos.x, y: p.pos.y }, 14, palette.pulse, 340);
-      this.shake = Math.max(this.shake, 10);
+      this.triggerWorldFlip();
     }
 
     if (this.justPressed.has('KeyX') || this.justPressed.has('ShiftLeft')) {
@@ -253,6 +252,18 @@ class Game {
       this.loadRoom(this.roomIndex + 1);
     }
 
+    if (this.flip.active) {
+      this.flip.elapsed += dt;
+      if (this.flip.elapsed >= this.flip.duration) {
+        this.flip.active = false;
+        this.flip.elapsed = this.flip.duration;
+        this.applyWorldRotation180();
+      }
+      this.updateParticles(dt);
+      this.justPressed.clear();
+      return;
+    }
+
     const axis = (this.keys.has('ArrowRight') || this.keys.has('KeyD') ? 1 : 0) - (this.keys.has('ArrowLeft') || this.keys.has('KeyA') ? 1 : 0);
 
     if (axis !== 0) {
@@ -264,13 +275,13 @@ class Game {
       else p.vel.x -= Math.sign(p.vel.x) * drag;
     }
 
-    p.vel.y += GRAVITY * p.gravityDir * dt;
+    p.vel.y += GRAVITY * dt;
 
     if (p.jumpBuffer > 0 && p.coyote > 0) {
-      p.vel.y = -p.gravityDir * JUMP_IMPULSE;
+      p.vel.y = -JUMP_IMPULSE;
       p.jumpBuffer = 0;
       p.coyote = 0;
-      this.emitBurst({ x: p.pos.x, y: p.pos.y + (p.gravityDir > 0 ? p.h / 2 : -p.h / 2) }, 7, palette.dust, 220);
+      this.emitBurst({ x: p.pos.x, y: p.pos.y + p.h / 2 }, 7, palette.dust, 220);
       this.shake = Math.max(this.shake, 3);
     }
 
@@ -284,6 +295,49 @@ class Game {
 
     this.checkTileInteractions();
     this.justPressed.clear();
+  }
+
+  private triggerWorldFlip(): void {
+    if (this.flip.active) return;
+    this.flip.active = true;
+    this.flip.elapsed = 0;
+    this.player.squash = 1;
+    this.emitBurst({ x: this.player.pos.x, y: this.player.pos.y }, 18, palette.pulse, 360);
+    this.shake = Math.max(this.shake, 10);
+  }
+
+  private applyWorldRotation180(): void {
+    const room = this.room;
+    const rotatedRows: Tile[][] = [];
+    for (let y = 0; y < room.height; y++) {
+      rotatedRows[y] = [];
+      for (let x = 0; x < room.width; x++) {
+        rotatedRows[y][x] = room.rows[room.height - 1 - y][room.width - 1 - x];
+      }
+    }
+    room.rows = rotatedRows;
+    room.spawn = { x: room.width - 1 - room.spawn.x, y: room.height - 1 - room.spawn.y };
+    room.goal = { x: room.width - 1 - room.goal.x, y: room.height - 1 - room.goal.y };
+
+    const worldW = room.width * TILE_SIZE;
+    const worldH = room.height * TILE_SIZE;
+    this.player.pos.x = worldW - this.player.pos.x;
+    this.player.pos.y = worldH - this.player.pos.y;
+    this.player.vel.x *= -1;
+    this.player.vel.y *= -1;
+
+    this.beams.forEach((beam) => {
+      beam.x = room.width - 1 - beam.x;
+      beam.y = room.height - 1 - beam.y;
+      beam.phase += Math.PI;
+    });
+
+    this.particles.forEach((particle) => {
+      particle.pos.x = worldW - particle.pos.x;
+      particle.pos.y = worldH - particle.pos.y;
+      particle.vel.x *= -1;
+      particle.vel.y *= -1;
+    });
   }
 
   private activatePulse(): void {
@@ -421,9 +475,7 @@ class Game {
           else if (p.vel.y < 0) p.pos.y = tileBottom + halfH;
           else p.pos.y += p.pos.y < tileTop + TILE_SIZE / 2 ? -overlapY : overlapY;
 
-          const standingOnSurface =
-            (p.gravityDir === 1 && p.vel.y >= 0) ||
-            (p.gravityDir === -1 && p.vel.y <= 0);
+          const standingOnSurface = p.vel.y >= 0;
 
           p.vel.y = 0;
           if (standingOnSurface) {
@@ -476,6 +528,16 @@ class Game {
 
     ctx.save();
     ctx.translate(shakeX, shakeY);
+
+    const roomW = this.room.width * TILE_SIZE;
+    const roomH = this.room.height * TILE_SIZE;
+    const flipT = this.flip.duration === 0 ? 1 : Math.min(1, this.flip.elapsed / this.flip.duration);
+    const spin = this.flip.active ? easeInOutCubic(flipT) * Math.PI : 0;
+    if (spin !== 0) {
+      ctx.translate(roomW / 2, roomH / 2);
+      ctx.rotate(spin);
+      ctx.translate(-roomW / 2, -roomH / 2);
+    }
 
     const g = ctx.createLinearGradient(0, 0, 0, this.canvas.height);
     g.addColorStop(0, palette.bg2);
@@ -558,7 +620,7 @@ class Game {
     ctx.fill();
 
     ctx.fillStyle = '#0d1e26';
-    const eyeY = p.pos.y + (p.gravityDir > 0 ? -4 : 4);
+    const eyeY = p.pos.y - 4;
     ctx.fillRect(p.pos.x - 5, eyeY, 4, 4);
     ctx.fillRect(p.pos.x + 1, eyeY, 4, 4);
 
@@ -578,6 +640,10 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   ctx.lineTo(x, y + r);
   ctx.quadraticCurveTo(x, y, x + r, y);
   ctx.closePath();
+}
+
+function easeInOutCubic(t: number): number {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 }
 
 function clamp(v: number, min: number, max: number): number {

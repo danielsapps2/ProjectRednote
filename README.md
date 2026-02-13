@@ -2,7 +2,7 @@
 
 Gravity Glyphs is a browser-first 2D puzzle platformer inspired by gravity-flip games, but with its own twist:
 
-- **Space** flips gravity instantly.
+- **Space** rotates the entire room 180° with a flip animation.
 - **Shift** (or **X**) fires a **phase pulse** that rotates nearby moving hazard beams.
 - Levels are authored in a tiny text format and can also be procedurally generated.
 
@@ -10,7 +10,7 @@ Gravity Glyphs is a browser-first 2D puzzle platformer inspired by gravity-flip 
 
 - `A/D` or `←/→`: move
 - `W` or `↑`: jump
-- `Space`: flip gravity
+- `Space`: rotate the whole map upside down
 - `Shift` or `X`: phase pulse
 - `R`: respawn room
 - `N`: skip to next room
