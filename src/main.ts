@@ -364,10 +364,24 @@ class Game {
       for (let x = minX; x <= maxX; x++) {
         if (this.room.rows[y]?.[x] !== '#') continue;
 
-        const tileCenterX = x * TILE_SIZE + TILE_SIZE / 2;
-        const overlap = halfW + TILE_SIZE / 2 - Math.abs(p.pos.x - tileCenterX);
-        if (overlap > 0) {
-          p.pos.x += Math.sign(p.pos.x - tileCenterX) * overlap;
+        const tileLeft = x * TILE_SIZE;
+        const tileRight = tileLeft + TILE_SIZE;
+        const tileTop = y * TILE_SIZE;
+        const tileBottom = tileTop + TILE_SIZE;
+
+        const playerLeft = p.pos.x - halfW;
+        const playerRight = p.pos.x + halfW;
+        const playerTop = p.pos.y - halfH;
+        const playerBottom = p.pos.y + halfH;
+
+        const overlapX = Math.min(playerRight, tileRight) - Math.max(playerLeft, tileLeft);
+        const overlapY = Math.min(playerBottom, tileBottom) - Math.max(playerTop, tileTop);
+
+        // Require true AABB overlap on both axes; touching an edge is not a collision.
+        if (overlapX > 0 && overlapY > 0) {
+          if (p.vel.x > 0) p.pos.x = tileLeft - halfW;
+          else if (p.vel.x < 0) p.pos.x = tileRight + halfW;
+          else p.pos.x += p.pos.x < tileLeft + TILE_SIZE / 2 ? -overlapX : overlapX;
           p.vel.x = 0;
         }
       }
@@ -388,12 +402,30 @@ class Game {
     for (let y = minY; y <= maxY; y++) {
       for (let x = minX; x <= maxX; x++) {
         if (this.room.rows[y]?.[x] !== '#') continue;
-        const tileCenterY = y * TILE_SIZE + TILE_SIZE / 2;
-        const overlap = halfH + TILE_SIZE / 2 - Math.abs(p.pos.y - tileCenterY);
-        if (overlap > 0) {
-          p.pos.y += Math.sign(p.pos.y - tileCenterY) * overlap;
+
+        const tileLeft = x * TILE_SIZE;
+        const tileRight = tileLeft + TILE_SIZE;
+        const tileTop = y * TILE_SIZE;
+        const tileBottom = tileTop + TILE_SIZE;
+
+        const playerLeft = p.pos.x - halfW;
+        const playerRight = p.pos.x + halfW;
+        const playerTop = p.pos.y - halfH;
+        const playerBottom = p.pos.y + halfH;
+
+        const overlapX = Math.min(playerRight, tileRight) - Math.max(playerLeft, tileLeft);
+        const overlapY = Math.min(playerBottom, tileBottom) - Math.max(playerTop, tileTop);
+
+        if (overlapX > 0 && overlapY > 0) {
+          if (p.vel.y > 0) p.pos.y = tileTop - halfH;
+          else if (p.vel.y < 0) p.pos.y = tileBottom + halfH;
+          else p.pos.y += p.pos.y < tileTop + TILE_SIZE / 2 ? -overlapY : overlapY;
+
+          const standingOnSurface =
+            (p.gravityDir === 1 && p.vel.y >= 0) ||
+            (p.gravityDir === -1 && p.vel.y <= 0);
+
           p.vel.y = 0;
-          const standingOnSurface = p.gravityDir === 1 ? p.pos.y < tileCenterY : p.pos.y > tileCenterY;
           if (standingOnSurface) {
             p.grounded = true;
             p.coyote = COYOTE_TIME;
